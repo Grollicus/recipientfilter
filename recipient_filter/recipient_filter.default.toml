@@ -1,0 +1,5 @@
+# the secret hat will be used to validate recipients
+# secret = "put your secret here"
+
+# the minimum length of the hash that need to match to consider the hash valid
+min_length = 6
