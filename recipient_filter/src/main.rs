@@ -1,23 +1,26 @@
 extern crate hmac;
 #[macro_use]
 extern crate lazy_static;
+extern crate nix;
 extern crate regex;
 extern crate toml;
 extern crate serde;
 extern crate sha2;
+extern crate users;
 
 use regex::{Regex};
 use serde::Deserialize;
 use sha2::Sha256;
 use hmac::{Hmac, Mac};
+use nix::unistd::{Uid, Gid, setresgid, setresuid};
 
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::io::{BufReader};
-use std::fs::{metadata, remove_file, File};
+use std::fs::{metadata, remove_file, File, set_permissions};
 use std::collections::HashMap;
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsString, OsStr};
 
 // TODO whiltelist / blacklist
 // TODO process a Read / Write, not a UnixStream
@@ -28,17 +31,15 @@ use std::ffi::OsString;
 use std::error::Error;
 use std::io::prelude::*;
 
-const CONFIG_FILE: &str = "/etc/recipient_filter.toml";
-
-fn _default_min_length() -> usize {
-    6
-}
+const CONFIG_FILE_DEFAULT: &str = "/etc/recipient_filter.toml";
 
 #[derive(Deserialize)]
 struct Config {
     secret: String,
-    #[serde(default = "_default_min_length")]
     min_length: usize,
+    socket_path: String,
+    user: String,
+    group: String,
 }
 
 fn compute_hash(msg: &str, secret: &str) -> String {
@@ -110,7 +111,6 @@ fn handle_request(ctx: PolicyContext, config: &Config) -> String {
     lazy_static! {
         static ref MAIL_REGEX: Regex = Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid");
     }
-    println!("Handling Request");
     println!("Got Request {}", ctx.attributes.get("request").unwrap_or(&String::from("<MISSING>")));
     let recipient = match ctx.attributes.get("recipient") {
         Some(rcp) => rcp,
@@ -147,7 +147,10 @@ fn handle_request(ctx: PolicyContext, config: &Config) -> String {
 fn test_handle_request() {
     let config = Config {
         secret: String::from("asdf"),
-        min_length: 6
+        socket_path: Default::default(),
+        min_length: 6,
+        user: Default::default(),
+        group: Default::default(),
     };
 
     let mut ctx = PolicyContext::new();
@@ -204,24 +207,31 @@ fn handle_connection(conn: UnixStream, config: &Config) -> Result<(), Box<Error>
                 ctx.parse_line(left, right);
             }
         }
-        // print!("{}", resp);
     }
 }
 
 
 fn main() -> Result<(), Box<Error>> {
 
-    let mut config_contents = String::new();
-    File::open(CONFIG_FILE).expect("Config file missing").read_to_string(&mut config_contents).expect("Error reading config file");
-    let config: Config = toml::from_str(&config_contents).expect("Error reading config file");
-
     let args: Vec<OsString> = env::args_os().collect();
-    if args.len() < 2 {
-        println!("Usage: {} <socket_path>\n\tCreates a UNIX socket and accepts policy requests at <socket_path>", args.get(1).unwrap().to_string_lossy());
+    let config_path = match args.get(1) {
+        Some(p) => p,
+        None => OsStr::new(CONFIG_FILE_DEFAULT),
+    };
+
+    if config_path == "-h" || config_path == "--help" {
+        println!("Usage: {} [<config_file>]", args.get(0).unwrap().to_string_lossy());
         return Ok(())
     }
-    let socket_path = args.get(2).unwrap();
 
+    let mut config_contents = String::new();
+    File::open(config_path).expect("Config file missing").read_to_string(&mut config_contents).expect("Error reading config file");
+    let config: Config = toml::from_str(&config_contents).expect("Error reading config file");
+
+    let uid = Uid::from_raw(users::get_user_by_name(&config.user).expect("Invalid User").uid());
+    let gid = Gid::from_raw(users::get_group_by_name(&config.group).expect("Invalid Group").gid());
+
+    let socket_path = &config.socket_path;
     if let Ok(meta) = metadata(socket_path) {
         if meta.file_type().is_socket() {
             remove_file(socket_path)?;
@@ -229,6 +239,10 @@ fn main() -> Result<(), Box<Error>> {
     }
 
     let listener = UnixListener::bind(socket_path).expect("Could not bind UNIX socket");
+    set_permissions(socket_path, PermissionsExt::from_mode(0o666))?;
+    setresgid(gid, gid, gid)?;
+    setresuid(uid, uid, uid)?;
+
     for conn in listener.incoming() {
         let conn = conn?;
         if let Err(e) = handle_connection(conn, &config) {

@@ -1,0 +1,10 @@
+[Unit]
+Description=Email policy server that validates recipient addresses with a secret
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/recipient_filter
+
+[Install]
+WantedBy=multi-user.target

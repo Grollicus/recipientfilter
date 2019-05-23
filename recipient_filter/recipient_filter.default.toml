@@ -3,3 +3,12 @@
 
 # the minimum length of the hash that need to match to consider the hash valid
 min_length = 6
+
+# user to run as
+user = "nobody"
+
+# group to run as
+group = "nobody"
+
+# where to put the unix socket that postfix will use to talk to us
+socket_path = "/var/run/recipient_filter/socket"
