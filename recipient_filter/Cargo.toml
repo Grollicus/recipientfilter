@@ -13,3 +13,4 @@ serde = {version="1.0.91", features=["derive"]}
 sha2 = "0.8.0"
 toml = "0.5"
 users = "0.9.1"
+postfix_policy = { path = "../postfix_policy" }
