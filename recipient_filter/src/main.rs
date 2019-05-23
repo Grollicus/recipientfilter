@@ -3,24 +3,24 @@ extern crate hmac;
 extern crate lazy_static;
 extern crate nix;
 extern crate regex;
-extern crate toml;
 extern crate serde;
 extern crate sha2;
+extern crate toml;
 extern crate users;
 
-use regex::{Regex};
+use hmac::{Hmac, Mac};
+use nix::unistd::{setresgid, setresuid, Gid, Uid};
+use regex::Regex;
 use serde::Deserialize;
 use sha2::Sha256;
-use hmac::{Hmac, Mac};
-use nix::unistd::{Uid, Gid, setresgid, setresuid};
 
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::io::{BufReader};
-use std::fs::{metadata, remove_file, File, set_permissions};
 use std::collections::HashMap;
 use std::env;
-use std::ffi::{OsString, OsStr};
+use std::ffi::{OsStr, OsString};
+use std::fs::{metadata, remove_file, set_permissions, File};
+use std::io::BufReader;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::net::{UnixListener, UnixStream};
 
 // TODO whiltelist / blacklist
 // TODO process a Read / Write, not a UnixStream
@@ -54,22 +54,26 @@ fn test_compute_hash() {
     let secret = "asdf";
     let msg = "test";
 
-    assert_eq!("8338a5d6d429c4f6618e2e02e296e283570f46378bc7e2a8dbbb399599cf6096", compute_hash(msg, secret));
+    assert_eq!(
+        "8338a5d6d429c4f6618e2e02e296e283570f46378bc7e2a8dbbb399599cf6096",
+        compute_hash(msg, secret)
+    );
 }
 
 struct PolicyContext {
-    attributes: HashMap<String, String>
+    attributes: HashMap<String, String>,
 }
 
 impl PolicyContext {
     fn new() -> Self {
         PolicyContext {
-            attributes: HashMap::new()
+            attributes: HashMap::new(),
         }
     }
 
     fn parse_line(&mut self, key: &str, value: &str) {
-        self.attributes.insert(String::from(key.clone()), String::from(value.clone()));
+        self.attributes
+            .insert(String::from(key), String::from(value));
     }
 }
 
@@ -106,17 +110,19 @@ policy_context=
 
 */
 
-
 fn handle_request(ctx: PolicyContext, config: &Config) -> String {
     lazy_static! {
         static ref MAIL_REGEX: Regex = Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid");
     }
-    println!("Got Request {}", ctx.attributes.get("request").unwrap_or(&String::from("<MISSING>")));
+    println!(
+        "Got Request {}",
+        ctx.attributes.get("request").unwrap_or(&String::from("<MISSING>"))
+    );
     let recipient = match ctx.attributes.get("recipient") {
         Some(rcp) => rcp,
         None => {
             println!("Recipient missing");
-            return String::from("DUNNO")
+            return String::from("DUNNO");
         }
     };
     let mail_match = match MAIL_REGEX.captures(recipient) {
@@ -131,13 +137,13 @@ fn handle_request(ctx: PolicyContext, config: &Config) -> String {
     let recipient_hash = mail_match.get(2).expect("MAIL_REGEX has two groups").as_str();
     if recipient_hash.len() < config.min_length {
         println!("Checking Recipient {}: Hash too short!", recipient);
-        return String::from("DUNNO")
+        return String::from("DUNNO");
     }
 
     let expected_hash = compute_hash(recipient_name, &config.secret);
     if recipient_hash[0..config.min_length] != expected_hash[0..config.min_length] {
         println!("Checking Recipient {}: Wrong hash value!", recipient);
-        return String::from("DUNNO")
+        return String::from("DUNNO");
     }
 
     String::from("OK")
@@ -174,7 +180,6 @@ fn test_handle_request() {
     assert_eq!(handle_request(ctx, &config), "DUNNO");
 }
 
-
 fn handle_connection(conn: UnixStream, config: &Config) -> Result<(), Box<Error>> {
     let mut read = BufReader::new(&conn);
     let mut ctx = PolicyContext::new();
@@ -182,7 +187,7 @@ fn handle_connection(conn: UnixStream, config: &Config) -> Result<(), Box<Error>
     loop {
         let mut resp = String::new();
         if read.read_line(&mut resp)? == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         if resp == "\n" {
@@ -196,23 +201,21 @@ fn handle_connection(conn: UnixStream, config: &Config) -> Result<(), Box<Error>
             None => {
                 println!("Read invalid line, ignoring: {:?}", resp);
                 continue;
-            },
+            }
             Some(pos) => {
                 let (left, mut right) = resp.split_at(pos);
                 if right.len() < 2 {
                     println!("Read invalid line, ignoring: {:?}", resp);
                     continue;
                 }
-                right = &right[1..right.len()-1];
+                right = &right[1..right.len() - 1];
                 ctx.parse_line(left, right);
             }
         }
     }
 }
 
-
 fn main() -> Result<(), Box<Error>> {
-
     let args: Vec<OsString> = env::args_os().collect();
     let config_path = match args.get(1) {
         Some(p) => p,
@@ -220,12 +223,15 @@ fn main() -> Result<(), Box<Error>> {
     };
 
     if config_path == "-h" || config_path == "--help" {
-        println!("Usage: {} [<config_file>]", args.get(0).unwrap().to_string_lossy());
-        return Ok(())
+        println!("Usage: {} [<config_file>]", args[0].to_string_lossy());
+        return Ok(());
     }
 
     let mut config_contents = String::new();
-    File::open(config_path).expect("Config file missing").read_to_string(&mut config_contents).expect("Error reading config file");
+    File::open(config_path)
+        .expect("Config file missing")
+        .read_to_string(&mut config_contents)
+        .expect("Error reading config file");
     let config: Config = toml::from_str(&config_contents).expect("Error reading config file");
 
     let uid = Uid::from_raw(users::get_user_by_name(&config.user).expect("Invalid User").uid());
