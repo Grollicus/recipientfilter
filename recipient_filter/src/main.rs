@@ -1,4 +1,3 @@
-// TODO config with regex -> username mapping
 // TODO improve log messages with utf8 conversions
 
 extern crate hmac;
@@ -125,11 +124,13 @@ impl<'l> EmailValidator<'l> {
     }
     fn recipient(&mut self, recipient: &[u8]) {
         if self.config.whitelist.is_match(recipient) {
+            println!("Recipient {}: Found in whitelist", String::from_utf8_lossy(recipient));
             self.response = Some(PolicyResponse::Ok);
             return;
         }
 
         if self.config.blacklist.is_match(recipient) {
+            println!("Recipient {}: Found in blacklist", String::from_utf8_lossy(recipient));
             self.response = Some(PolicyResponse::Reject(Vec::new()));
             return;
         }
@@ -137,7 +138,7 @@ impl<'l> EmailValidator<'l> {
         let mail_match = match self.config.mail_regex.captures(recipient) {
             Some(m) => m,
             None => {
-                println!("Recipient does not match MAIL_REGEX: {:?}", recipient);
+                println!("Recipient {}: does not match MAIL_REGEX", String::from_utf8_lossy(recipient));
                 self.response = Some(PolicyResponse::Dunno);
                 return;
             }
@@ -146,14 +147,14 @@ impl<'l> EmailValidator<'l> {
         let recipient_name = mail_match.get(1).expect("MAIL_REGEX has two groups").as_bytes();
         let recipient_hash = mail_match.get(2).expect("MAIL_REGEX has two groups").as_bytes();
         if recipient_hash.len() < self.config.min_length {
-            println!("Checking Recipient {:?}: Hash too short!", recipient);
+            println!("Recipient {}: Hash too short!", String::from_utf8_lossy(recipient));
             self.response = Some(PolicyResponse::Dunno);
             return;
         }
 
         let expected_hash = compute_hash(recipient_name, &self.config.secret);
         if recipient_hash[0..self.config.min_length] != expected_hash[0..self.config.min_length] {
-            println!("Checking Recipient {:?}: Wrong hash value!", recipient);
+            println!("Recipient {}: Wrong hash value!", String::from_utf8_lossy(recipient));
             self.response = Some(PolicyResponse::Dunno);
             return;
         }
