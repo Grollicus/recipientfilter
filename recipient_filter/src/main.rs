@@ -139,7 +139,7 @@ impl<'l> EmailValidator<'l> {
             Some(m) => m,
             None => {
                 println!("Recipient {}: does not match MAIL_REGEX", String::from_utf8_lossy(recipient));
-                self.response = Some(PolicyResponse::Dunno);
+                self.response = Some(PolicyResponse::Reject(Vec::new()));
                 return;
             }
         };
@@ -148,14 +148,14 @@ impl<'l> EmailValidator<'l> {
         let recipient_hash = mail_match.get(2).expect("MAIL_REGEX has two groups").as_bytes();
         if recipient_hash.len() < self.config.min_length {
             println!("Recipient {}: Hash too short!", String::from_utf8_lossy(recipient));
-            self.response = Some(PolicyResponse::Dunno);
+            self.response = Some(PolicyResponse::Reject(Vec::new()));
             return;
         }
 
         let expected_hash = compute_hash(recipient_name, &self.config.secret);
         if recipient_hash[0..self.config.min_length].to_ascii_lowercase()[..] != expected_hash[0..self.config.min_length] {
             println!("Recipient {}: Wrong hash value!", String::from_utf8_lossy(recipient));
-            self.response = Some(PolicyResponse::Dunno);
+            self.response = Some(PolicyResponse::Reject(Vec::new()));
             return;
         }
 
@@ -220,19 +220,19 @@ fn test_handle_request() {
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test.aaaaaa@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Dunno);
+    assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
 
     // hash missing
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Dunno);
+    assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
 
     // too short
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test.8338a@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Dunno);
+    assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
 
     // whitelisted
     let mut ctx = EmailValidator::new(&config);
