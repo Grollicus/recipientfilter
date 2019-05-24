@@ -1,5 +1,3 @@
-// TODO improve log messages with utf8 conversions
-
 extern crate hmac;
 extern crate nix;
 extern crate regex;
@@ -14,7 +12,7 @@ use postfix_policy::{handle_connection, PolicyRequestHandler, PolicyResponse};
 
 use hmac::{Hmac, Mac};
 use nix::unistd::{setresgid, setresuid, Gid, Uid};
-use regex::bytes::{Regex, RegexSet, RegexBuilder, RegexSetBuilder};
+use regex::bytes::{Regex, RegexBuilder, RegexSet, RegexSetBuilder};
 use serde::Deserialize;
 use sha2::Sha256;
 
@@ -59,7 +57,10 @@ impl Config {
             socket_path: Default::default(),
             user: Uid::from_raw(0),
             group: Gid::from_raw(0),
-            mail_regex: RegexBuilder::new(r"^([^@]+)\.([a-fA-F0-9]+)@.+$").unicode(false).build().expect("MAIL_REGEX invalid"),
+            mail_regex: RegexBuilder::new(r"^([^@]+)\.([a-fA-F0-9]+)@.+$")
+                .unicode(false)
+                .build()
+                .expect("MAIL_REGEX invalid"),
             whitelist: RegexSet::new::<_, &String>(&[]).expect("empty RegexSet"),
             blacklist: RegexSet::new::<_, &String>(&[]).expect("empty RegexSet"),
         }
@@ -84,10 +85,18 @@ impl Config {
                 .gid(),
         );
         if let Some(whitelist) = file_contents.whitelist {
-            config.whitelist = RegexSetBuilder::new(whitelist).unicode(false).case_insensitive(true).build().expect("Invalid Whitelist Entry");
+            config.whitelist = RegexSetBuilder::new(whitelist)
+                .unicode(false)
+                .case_insensitive(true)
+                .build()
+                .expect("Invalid Whitelist Entry");
         }
         if let Some(blacklist) = file_contents.blacklist {
-            config.blacklist = RegexSetBuilder::new(blacklist).unicode(false).case_insensitive(true).build().expect("Invalid Blacklist Entry");
+            config.blacklist = RegexSetBuilder::new(blacklist)
+                .unicode(false)
+                .case_insensitive(true)
+                .build()
+                .expect("Invalid Blacklist Entry");
         }
         Some(config)
     }
@@ -138,7 +147,10 @@ impl<'l> EmailValidator<'l> {
         let mail_match = match self.config.mail_regex.captures(recipient) {
             Some(m) => m,
             None => {
-                println!("Recipient {}: does not match MAIL_REGEX", String::from_utf8_lossy(recipient));
+                println!(
+                    "Recipient {}: does not match MAIL_REGEX",
+                    String::from_utf8_lossy(recipient)
+                );
                 self.response = Some(PolicyResponse::Reject(Vec::new()));
                 return;
             }
@@ -153,7 +165,9 @@ impl<'l> EmailValidator<'l> {
         }
 
         let expected_hash = compute_hash(recipient_name, &self.config.secret);
-        if recipient_hash[0..self.config.min_length].to_ascii_lowercase()[..] != expected_hash[0..self.config.min_length] {
+        if recipient_hash[0..self.config.min_length].to_ascii_lowercase()[..]
+            != expected_hash[0..self.config.min_length]
+        {
             println!("Recipient {}: Wrong hash value!", String::from_utf8_lossy(recipient));
             self.response = Some(PolicyResponse::Reject(Vec::new()));
             return;
@@ -202,7 +216,10 @@ fn test_handle_request() {
 
     // correct hash + parsing
     let input = b"request=smtpd_access_policy\nrecipient=test.8338a5@some.where.net\n\n";
-    assert_eq!(handle_connection_response::<EmailValidator, _>(input, &config).unwrap(), b"action=OK\n\n");
+    assert_eq!(
+        handle_connection_response::<EmailValidator, _>(input, &config).unwrap(),
+        b"action=OK\n\n"
+    );
 
     // correct hash
     let mut ctx = EmailValidator::new(&config);

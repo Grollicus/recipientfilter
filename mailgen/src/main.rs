@@ -121,7 +121,7 @@ fn main() -> Result<(), Box<Error>> {
         println!("Saved config file to {}", config_path.as_os_str().to_string_lossy());
     }
 
-    if config.secret.len() == 0 {
+    if config.secret.is_empty() {
         println!("No secret given!");
         return Ok(());
     }
