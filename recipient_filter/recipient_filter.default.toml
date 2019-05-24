@@ -10,7 +10,7 @@ whitelist = []
 blacklist = []
 
 # the minimum length of the hash that need to match to consider the hash valid
-min_length = 6
+min_length = 8
 
 # user to run as
 user = "nobody"

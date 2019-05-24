@@ -53,7 +53,7 @@ impl Config {
     fn new() -> Self {
         Config {
             secret: vec![],
-            min_length: 6,
+            min_length: 8,
             socket_path: Default::default(),
             user: Uid::from_raw(0),
             group: Gid::from_raw(0),
