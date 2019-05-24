@@ -187,6 +187,7 @@ impl<'l> PolicyRequestHandler<'l, Config> for EmailValidator<'l> {
 
 #[test]
 fn test_handle_request() {
+    use postfix_policy::test_helper::handle_connection_response;
 
     let config_file = ConfigFile {
         secret: Some(String::from("asdf")),
@@ -198,6 +199,10 @@ fn test_handle_request() {
         blacklist: Some([String::from(".+@not.allowed.net$")].to_vec()),
     };
     let config = Config::load(config_file).unwrap();
+
+    // correct hash + parsing
+    let input = b"request=smtpd_access_policy\nrecipient=test.8338a5@some.where.net\n\n";
+    assert_eq!(handle_connection_response::<EmailValidator, _>(input, &config).unwrap(), b"action=OK\n\n");
 
     // correct hash
     let mut ctx = EmailValidator::new(&config);
