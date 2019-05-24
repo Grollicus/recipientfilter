@@ -1,8 +1,14 @@
+// TODO whiltelist / blacklist
+// TODO config with regex -> username mapping
+// TODO improve log messages with utf8 conversions
+
+
 extern crate hmac;
 #[macro_use]
 extern crate lazy_static;
 extern crate nix;
 extern crate regex;
+extern crate scoped_pool;
 extern crate serde;
 extern crate sha2;
 extern crate toml;
@@ -23,11 +29,6 @@ use std::fs::{metadata, remove_file, set_permissions, File};
 use std::io::BufReader;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
-use std::thread;
-
-// TODO whiltelist / blacklist
-// config with regex -> username mapping
-
 use std::error::Error;
 use std::io::prelude::*;
 
@@ -191,17 +192,22 @@ fn main() -> Result<(), Box<Error>> {
     setresgid(gid, gid, gid)?;
     setresuid(uid, uid, uid)?;
 
-    for conn in listener.incoming() {
-        let mut conn = conn?;
-        let clone = conn.try_clone()?;
-        let config = config.clone();
-        thread::spawn(move || {
-            let reader = BufReader::new(clone);
-            if let Err(e) = handle_connection::<EmailValidator, _, _, _>(reader, &mut conn, &config) {
-                println!("handle_connection failed: {:?}", e);
-            };
-        });
-    }
+    let thread_pool = scoped_pool::Pool::new(4);
+    thread_pool.scoped::<_, Result<(), Box<Error>>>(|scope| {
+        for conn in listener.incoming() {
+            let mut conn = conn?;
+            let clone = conn.try_clone()?;
+            let cfg_ref = &config;
+            scope.execute(move || {
+                let reader = BufReader::new(clone);
+                if let Err(e) = handle_connection::<EmailValidator, _, _, _>(reader, &mut conn, cfg_ref) {
+                    println!("handle_connection failed: {:?}", e);
+                };
+            });
+        }
+
+        Ok(())
+    })?;
 
     Ok(())
 }
