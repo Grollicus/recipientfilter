@@ -130,7 +130,7 @@ impl<'l> EmailValidator<'l> {
         }
 
         if self.config.blacklist.is_match(recipient) {
-            self.response = Some(PolicyResponse::Reject);
+            self.response = Some(PolicyResponse::Reject(Vec::new()));
             return;
         }
 
