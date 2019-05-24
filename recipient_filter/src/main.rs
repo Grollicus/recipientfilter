@@ -1,7 +1,5 @@
-// TODO whiltelist / blacklist
 // TODO config with regex -> username mapping
 // TODO improve log messages with utf8 conversions
-
 
 extern crate hmac;
 extern crate nix;
@@ -17,18 +15,18 @@ use postfix_policy::{handle_connection, PolicyRequestHandler, PolicyResponse};
 
 use hmac::{Hmac, Mac};
 use nix::unistd::{setresgid, setresuid, Gid, Uid};
-use regex::bytes::Regex;
+use regex::bytes::{Regex, RegexSet};
 use serde::Deserialize;
 use sha2::Sha256;
 
 use std::env;
+use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs::{metadata, remove_file, set_permissions, File};
+use std::io::prelude::*;
 use std::io::BufReader;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
-use std::error::Error;
-use std::io::prelude::*;
 
 const CONFIG_FILE_DEFAULT: &str = "/etc/recipient_filter.toml";
 
@@ -39,6 +37,8 @@ struct ConfigFile {
     socket_path: String,
     user: String,
     group: String,
+    whitelist: Option<Vec<String>>,
+    blacklist: Option<Vec<String>>,
 }
 
 struct Config {
@@ -48,6 +48,8 @@ struct Config {
     user: Uid,
     group: Gid,
     mail_regex: Regex,
+    whitelist: RegexSet,
+    blacklist: RegexSet,
 }
 
 impl Config {
@@ -58,17 +60,36 @@ impl Config {
             socket_path: Default::default(),
             user: Uid::from_raw(0),
             group: Gid::from_raw(0),
-            mail_regex: Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid")
+            mail_regex: Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid"),
+            whitelist: RegexSet::new::<_, &String>(&[]).expect("empty RegexSet"),
+            blacklist: RegexSet::new::<_, &String>(&[]).expect("empty RegexSet"),
         }
     }
     fn load(file_contents: ConfigFile) -> Option<Self> {
         let mut config = Self::new();
 
-        config.secret = file_contents.secret.expect("Config File: Secret is missing").into_bytes();
+        config.secret = file_contents
+            .secret
+            .expect("Config File: Secret is missing")
+            .into_bytes();
         config.min_length = file_contents.min_length;
         config.socket_path = file_contents.socket_path;
-        config.user = Uid::from_raw(users::get_user_by_name(&file_contents.user).expect("Invalid User").uid());
-        config.group = Gid::from_raw(users::get_group_by_name(&file_contents.group).expect("Invalid Group").gid());
+        config.user = Uid::from_raw(
+            users::get_user_by_name(&file_contents.user)
+                .expect("Invalid User")
+                .uid(),
+        );
+        config.group = Gid::from_raw(
+            users::get_group_by_name(&file_contents.group)
+                .expect("Invalid Group")
+                .gid(),
+        );
+        if let Some(whitelist) = file_contents.whitelist {
+            config.whitelist = RegexSet::new(whitelist).expect("Invalid Whitelist Entry");
+        }
+        if let Some(blacklist) = file_contents.blacklist {
+            config.blacklist = RegexSet::new(blacklist).expect("Invalid Blacklist Entry");
+        }
         Some(config)
     }
 }
@@ -103,6 +124,16 @@ impl<'l> EmailValidator<'l> {
         }
     }
     fn recipient(&mut self, recipient: &[u8]) {
+        if self.config.whitelist.is_match(recipient) {
+            self.response = Some(PolicyResponse::Ok);
+            return;
+        }
+
+        if self.config.blacklist.is_match(recipient) {
+            self.response = Some(PolicyResponse::Reject);
+            return;
+        }
+
         let mail_match = match self.config.mail_regex.captures(recipient) {
             Some(m) => m,
             None => {
@@ -177,6 +208,23 @@ fn test_handle_request() {
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test.8338a@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Dunno);
+
+    config.whitelist = RegexSet::new(&[".+@some.where.net$"]).unwrap();
+    config.blacklist = RegexSet::new(&[".+@not.to.here.net$"]).unwrap();
+    let mut ctx = EmailValidator::new(&config);
+    ctx.parse_line(b"request", b"smtpd_access_policy");
+    ctx.parse_line(b"recipient", b"test@some.where.net");
+    assert_eq!(ctx.response(), PolicyResponse::Ok);
+
+    let mut ctx = EmailValidator::new(&config);
+    ctx.parse_line(b"request", b"smtpd_access_policy");
+    ctx.parse_line(b"recipient", b"test.8338a@some.where.other.net");
+    assert_eq!(ctx.response(), PolicyResponse::Dunno);
+
+    let mut ctx = EmailValidator::new(&config);
+    ctx.parse_line(b"request", b"smtpd_access_policy");
+    ctx.parse_line(b"recipient", b"test.8338a5@not.to.here.net");
+    assert_eq!(ctx.response(), PolicyResponse::Reject);
 }
 
 fn main() -> Result<(), Box<Error>> {
@@ -198,7 +246,7 @@ fn main() -> Result<(), Box<Error>> {
         .expect("Error reading config file");
     let config_file: ConfigFile = toml::from_str(&config_contents).expect("Error reading config file");
     let config = match Config::load(config_file) {
-        None => { return Ok(()) },
+        None => return Ok(()),
         Some(c) => c,
     };
 

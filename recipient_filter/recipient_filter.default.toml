@@ -1,6 +1,12 @@
 # the secret hat will be used to validate recipients
 # secret = "put your secret here"
 
+# a list of regexes that, if any of these match, will allow a mail to go through even without presence of a matching hash
+whitelist = []
+
+# a list of regex that, if any of these match, will reject the message
+blacklist = []
+
 # the minimum length of the hash that need to match to consider the hash valid
 min_length = 6
 
