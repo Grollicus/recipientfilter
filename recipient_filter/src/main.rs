@@ -4,8 +4,6 @@
 
 
 extern crate hmac;
-#[macro_use]
-extern crate lazy_static;
 extern crate nix;
 extern crate regex;
 extern crate scoped_pool;
@@ -34,13 +32,45 @@ use std::io::prelude::*;
 
 const CONFIG_FILE_DEFAULT: &str = "/etc/recipient_filter.toml";
 
-#[derive(Deserialize, Clone)]
-struct Config {
-    secret: String,
+#[derive(Deserialize)]
+struct ConfigFile {
+    secret: Option<String>,
     min_length: usize,
     socket_path: String,
     user: String,
     group: String,
+}
+
+struct Config {
+    secret: Vec<u8>,
+    min_length: usize,
+    socket_path: String,
+    user: Uid,
+    group: Gid,
+    mail_regex: Regex,
+}
+
+impl Config {
+    fn new() -> Self {
+        Config {
+            secret: vec![],
+            min_length: 6,
+            socket_path: Default::default(),
+            user: Uid::from_raw(0),
+            group: Gid::from_raw(0),
+            mail_regex: Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid")
+        }
+    }
+    fn load(file_contents: ConfigFile) -> Option<Self> {
+        let mut config = Self::new();
+
+        config.secret = file_contents.secret.expect("Config File: Secret is missing").into_bytes();
+        config.min_length = file_contents.min_length;
+        config.socket_path = file_contents.socket_path;
+        config.user = Uid::from_raw(users::get_user_by_name(&file_contents.user).expect("Invalid User").uid());
+        config.group = Gid::from_raw(users::get_group_by_name(&file_contents.group).expect("Invalid Group").gid());
+        Some(config)
+    }
 }
 
 fn compute_hash(msg: &[u8], secret: &[u8]) -> Vec<u8> {
@@ -73,11 +103,7 @@ impl<'l> EmailValidator<'l> {
         }
     }
     fn recipient(&mut self, recipient: &[u8]) {
-        lazy_static! {
-            static ref MAIL_REGEX: Regex = Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid");
-        }
-
-        let mail_match = match MAIL_REGEX.captures(recipient) {
+        let mail_match = match self.config.mail_regex.captures(recipient) {
             Some(m) => m,
             None => {
                 println!("Recipient does not match MAIL_REGEX: {:?}", recipient);
@@ -94,7 +120,7 @@ impl<'l> EmailValidator<'l> {
             return;
         }
 
-        let expected_hash = compute_hash(recipient_name, &self.config.secret.as_bytes());
+        let expected_hash = compute_hash(recipient_name, &self.config.secret);
         if recipient_hash[0..self.config.min_length] != expected_hash[0..self.config.min_length] {
             println!("Checking Recipient {:?}: Wrong hash value!", recipient);
             self.response = Some(PolicyResponse::Dunno);
@@ -129,13 +155,8 @@ impl<'l> PolicyRequestHandler<'l, Config> for EmailValidator<'l> {
 
 #[test]
 fn test_handle_request() {
-    let config = Config {
-        secret: String::from("asdf"),
-        socket_path: Default::default(),
-        min_length: 6,
-        user: Default::default(),
-        group: Default::default(),
-    };
+    let mut config = Config::new();
+    config.secret = Vec::from("asdf");
 
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
@@ -175,10 +196,11 @@ fn main() -> Result<(), Box<Error>> {
         .expect("Config file missing")
         .read_to_string(&mut config_contents)
         .expect("Error reading config file");
-    let config: Config = toml::from_str(&config_contents).expect("Error reading config file");
-
-    let uid = Uid::from_raw(users::get_user_by_name(&config.user).expect("Invalid User").uid());
-    let gid = Gid::from_raw(users::get_group_by_name(&config.group).expect("Invalid Group").gid());
+    let config_file: ConfigFile = toml::from_str(&config_contents).expect("Error reading config file");
+    let config = match Config::load(config_file) {
+        None => { return Ok(()) },
+        Some(c) => c,
+    };
 
     let socket_path = &config.socket_path;
     if let Ok(meta) = metadata(socket_path) {
@@ -189,8 +211,8 @@ fn main() -> Result<(), Box<Error>> {
 
     let listener = UnixListener::bind(socket_path).expect("Could not bind UNIX socket");
     set_permissions(socket_path, PermissionsExt::from_mode(0o666))?;
-    setresgid(gid, gid, gid)?;
-    setresuid(uid, uid, uid)?;
+    setresgid(config.group, config.group, config.group)?;
+    setresuid(config.user, config.user, config.user)?;
 
     let thread_pool = scoped_pool::Pool::new(4);
     thread_pool.scoped::<_, Result<(), Box<Error>>>(|scope| {
