@@ -1,0 +1,13 @@
+[package]
+name = "mailgen"
+version = "0.1.0"
+authors = ["Grollicus"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33.0"
+dirs = "1.0.5"
+hmac = "0.7.0"
+serde = {version="1.0.91", features=["derive"]}
+sha2 = "0.8.0"
+toml = "0.5"
