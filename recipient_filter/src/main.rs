@@ -14,7 +14,7 @@ use postfix_policy::{handle_connection, PolicyRequestHandler, PolicyResponse};
 
 use hmac::{Hmac, Mac};
 use nix::unistd::{setresgid, setresuid, Gid, Uid};
-use regex::bytes::{Regex, RegexSet};
+use regex::bytes::{Regex, RegexSet, RegexBuilder, RegexSetBuilder};
 use serde::Deserialize;
 use sha2::Sha256;
 
@@ -59,7 +59,7 @@ impl Config {
             socket_path: Default::default(),
             user: Uid::from_raw(0),
             group: Gid::from_raw(0),
-            mail_regex: Regex::new(r"^([^@]+)\.([a-f0-9]+)@.+$").expect("MAIL_REGEX invalid"),
+            mail_regex: RegexBuilder::new(r"^([^@]+)\.([a-fA-F0-9]+)@.+$").unicode(false).build().expect("MAIL_REGEX invalid"),
             whitelist: RegexSet::new::<_, &String>(&[]).expect("empty RegexSet"),
             blacklist: RegexSet::new::<_, &String>(&[]).expect("empty RegexSet"),
         }
@@ -84,10 +84,10 @@ impl Config {
                 .gid(),
         );
         if let Some(whitelist) = file_contents.whitelist {
-            config.whitelist = RegexSet::new(whitelist).expect("Invalid Whitelist Entry");
+            config.whitelist = RegexSetBuilder::new(whitelist).unicode(false).case_insensitive(true).build().expect("Invalid Whitelist Entry");
         }
         if let Some(blacklist) = file_contents.blacklist {
-            config.blacklist = RegexSet::new(blacklist).expect("Invalid Blacklist Entry");
+            config.blacklist = RegexSetBuilder::new(blacklist).unicode(false).case_insensitive(true).build().expect("Invalid Blacklist Entry");
         }
         Some(config)
     }
@@ -153,7 +153,7 @@ impl<'l> EmailValidator<'l> {
         }
 
         let expected_hash = compute_hash(recipient_name, &self.config.secret);
-        if recipient_hash[0..self.config.min_length] != expected_hash[0..self.config.min_length] {
+        if recipient_hash[0..self.config.min_length].to_ascii_lowercase()[..] != expected_hash[0..self.config.min_length] {
             println!("Recipient {}: Wrong hash value!", String::from_utf8_lossy(recipient));
             self.response = Some(PolicyResponse::Dunno);
             return;
@@ -187,45 +187,71 @@ impl<'l> PolicyRequestHandler<'l, Config> for EmailValidator<'l> {
 
 #[test]
 fn test_handle_request() {
-    let mut config = Config::new();
-    config.secret = Vec::from("asdf");
 
+    let config_file = ConfigFile {
+        secret: Some(String::from("asdf")),
+        min_length: 6,
+        socket_path: String::from("/some/where"),
+        user: users::get_current_username().unwrap().into_string().unwrap(),
+        group: users::get_current_groupname().unwrap().into_string().unwrap(),
+        whitelist: Some([String::from(".+@allowed.net$")].to_vec()),
+        blacklist: Some([String::from(".+@not.allowed.net$")].to_vec()),
+    };
+    let config = Config::load(config_file).unwrap();
+
+    // correct hash
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test.8338a5@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Ok);
 
+    // correct hash but different case
+    let mut ctx = EmailValidator::new(&config);
+    ctx.parse_line(b"request", b"smtpd_access_policy");
+    ctx.parse_line(b"recipient", b"test.8338A5@some.where.net");
+    assert_eq!(ctx.response(), PolicyResponse::Ok);
+
+    // wrong hash
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test.aaaaaa@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Dunno);
 
+    // hash missing
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Dunno);
 
+    // too short
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
     ctx.parse_line(b"recipient", b"test.8338a@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Dunno);
 
-    config.whitelist = RegexSet::new(&[".+@some.where.net$"]).unwrap();
-    config.blacklist = RegexSet::new(&[".+@not.to.here.net$"]).unwrap();
+    // whitelisted
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test@some.where.net");
+    ctx.parse_line(b"recipient", b"test@allowed.net");
     assert_eq!(ctx.response(), PolicyResponse::Ok);
 
+    // whitelisted but different case
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338a@some.where.other.net");
-    assert_eq!(ctx.response(), PolicyResponse::Dunno);
+    ctx.parse_line(b"recipient", b"test@AlloWed.net");
+    assert_eq!(ctx.response(), PolicyResponse::Ok);
 
+    // blacklisted, even though valid hash
     let mut ctx = EmailValidator::new(&config);
     ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338a5@not.to.here.net");
-    assert_eq!(ctx.response(), PolicyResponse::Reject);
+    ctx.parse_line(b"recipient", b"test.8338a5@not.allowed.net");
+    assert_eq!(ctx.response(), PolicyResponse::Reject(Vec::new()));
+
+    // blacklisted but different case, even though valid hash
+    let mut ctx = EmailValidator::new(&config);
+    ctx.parse_line(b"request", b"smtpd_access_policy");
+    ctx.parse_line(b"recipient", b"test.8338a5@NOT.ALLOWED.net");
+    assert_eq!(ctx.response(), PolicyResponse::Reject(Vec::new()));
 }
 
 fn main() -> Result<(), Box<Error>> {

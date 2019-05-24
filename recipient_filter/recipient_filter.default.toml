@@ -2,9 +2,11 @@
 # secret = "put your secret here"
 
 # a list of regexes that, if any of these match, will allow a mail to go through even without presence of a matching hash
+# the whitelist is case insensitive
 whitelist = []
 
 # a list of regex that, if any of these match, will reject the message
+# the blacklist is case insensitive
 blacklist = []
 
 # the minimum length of the hash that need to match to consider the hash valid

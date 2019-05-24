@@ -127,6 +127,7 @@ fn main() -> Result<(), Box<Error>> {
     }
 
     for name in args.values_of("NAME").expect("NAME is an argument") {
+        let name = name.to_ascii_lowercase();
         let hash = compute_hash(name.as_bytes(), &config.secret.as_bytes());
         let hash = from_utf8(&hash[0..config.length])?;
         println!("{}.{}@{}", name, hash, &config.domain);
