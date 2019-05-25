@@ -183,7 +183,7 @@ impl<'l> PolicyRequestHandler<'l, Config> for EmailValidator<'l> {
             response: None,
         }
     }
-    fn parse_line(&mut self, name: &[u8], value: &[u8]) {
+    fn attribute(&mut self, name: &[u8], value: &[u8]) {
         if self.response.is_some() {
             return;
         }
@@ -223,56 +223,56 @@ fn test_handle_request() {
 
     // correct hash
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338a5@some.where.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test.8338a5@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Ok);
 
     // correct hash but different case
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338A5@some.where.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test.8338A5@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Ok);
 
     // wrong hash
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.aaaaaa@some.where.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test.aaaaaa@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
 
     // hash missing
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test@some.where.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
 
     // too short
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338a@some.where.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test.8338a@some.where.net");
     assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
 
     // whitelisted
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test@allowed.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test@allowed.net");
     assert_eq!(ctx.response(), PolicyResponse::Ok);
 
     // whitelisted but different case
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test@AlloWed.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test@AlloWed.net");
     assert_eq!(ctx.response(), PolicyResponse::Ok);
 
     // blacklisted, even though valid hash
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338a5@not.allowed.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test.8338a5@not.allowed.net");
     assert_eq!(ctx.response(), PolicyResponse::Reject(Vec::new()));
 
     // blacklisted but different case, even though valid hash
     let mut ctx = EmailValidator::new(&config);
-    ctx.parse_line(b"request", b"smtpd_access_policy");
-    ctx.parse_line(b"recipient", b"test.8338a5@NOT.ALLOWED.net");
+    ctx.attribute(b"request", b"smtpd_access_policy");
+    ctx.attribute(b"recipient", b"test.8338a5@NOT.ALLOWED.net");
     assert_eq!(ctx.response(), PolicyResponse::Reject(Vec::new()));
 }
 
