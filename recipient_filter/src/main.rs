@@ -195,26 +195,27 @@ impl<'l> EmailValidator<'l> {
         self.response = Some(PolicyResponse::Ok)
     }
 }
-impl<'l> PolicyRequestHandler<'l, Config> for EmailValidator<'l> {
+impl<'l> PolicyRequestHandler<'l, Config, ()> for EmailValidator<'l> {
     fn new(cfg: &'l Config) -> Self {
         Self {
             config: cfg,
             response: None,
         }
     }
-    fn attribute(&mut self, name: &[u8], value: &[u8]) {
+    fn attribute(&mut self, name: &[u8], value: &[u8]) -> Option<()> {
         if self.response.is_some() {
-            return;
+            return None;
         }
         match name {
             b"request" => self.request(value),
             b"recipient" => self.recipient(value),
             _ => {}
         }
+        None
     }
 
-    fn response(self) -> PolicyResponse {
-        self.response.unwrap_or(PolicyResponse::Dunno)
+    fn response(self) -> Result<PolicyResponse, ()>  {
+        Ok(self.response.unwrap_or(PolicyResponse::Dunno))
     }
 }
 
@@ -236,7 +237,7 @@ fn test_handle_request() {
     // correct hash + parsing
     let input = b"request=smtpd_access_policy\nrecipient=test.8338a5@some.where.net\n\n";
     assert_eq!(
-        handle_connection_response::<EmailValidator, _>(input, &config).unwrap(),
+        handle_connection_response::<EmailValidator, _, _>(input, &config).unwrap(),
         b"action=OK\n\n"
     );
 
@@ -244,55 +245,55 @@ fn test_handle_request() {
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test.8338a5@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Ok);
+    assert_eq!(ctx.response(), Ok(PolicyResponse::Ok));
 
     // correct hash but different case
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test.8338A5@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Ok);
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Ok);
 
     // wrong hash
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test.aaaaaa@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Reject(vec![]));
 
     // hash missing
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Reject(vec![]));
 
     // too short
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test.8338a@some.where.net");
-    assert_eq!(ctx.response(), PolicyResponse::Reject(vec![]));
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Reject(vec![]));
 
     // whitelisted
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test@allowed.net");
-    assert_eq!(ctx.response(), PolicyResponse::Ok);
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Ok);
 
     // whitelisted but different case
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test@AlloWed.net");
-    assert_eq!(ctx.response(), PolicyResponse::Ok);
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Ok);
 
     // blacklisted, even though valid hash
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test.8338a5@not.allowed.net");
-    assert_eq!(ctx.response(), PolicyResponse::Reject(Vec::new()));
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Reject(Vec::new()));
 
     // blacklisted but different case, even though valid hash
     let mut ctx = EmailValidator::new(&config);
     ctx.attribute(b"request", b"smtpd_access_policy");
     ctx.attribute(b"recipient", b"test.8338a5@NOT.ALLOWED.net");
-    assert_eq!(ctx.response(), PolicyResponse::Reject(Vec::new()));
+    assert_eq!(ctx.response().unwrap(), PolicyResponse::Reject(Vec::new()));
 }
 
 fn main() -> Result<(), Box<Error>> {
@@ -338,7 +339,7 @@ fn main() -> Result<(), Box<Error>> {
             let cfg_ref = &config;
             scope.execute(move || {
                 let reader = BufReader::new(clone);
-                if let Err(e) = handle_connection::<EmailValidator, _, _, _>(reader, &mut conn, cfg_ref) {
+                if let Err(e) = handle_connection::<EmailValidator, _, _, _, _>(reader, &mut conn, cfg_ref) {
                     println!("handle_connection failed: {:?}", e);
                 };
             });
