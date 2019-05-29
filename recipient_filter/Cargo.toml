@@ -1,6 +1,6 @@
 [package]
 name = "recipient_filter"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Grollicus"]
 edition = "2018"
 repository = "https://github.com/Grollicus/mailfilter"
