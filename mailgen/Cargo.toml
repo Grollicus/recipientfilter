@@ -3,7 +3,7 @@ name = "mailgen"
 version = "0.1.0"
 authors = ["Grollicus"]
 edition = "2018"
-description = "CLI tool that generates email addresses that are valid under a secret"
+description = "CLI tool that generates email addresses that are valid under a secret. For use with recipient_filter"
 
 [dependencies]
 clap = "2.33.0"
