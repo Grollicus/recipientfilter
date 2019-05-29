@@ -40,7 +40,6 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs::{metadata, remove_file, set_permissions, File};
 use std::io::prelude::*;
-use std::io::BufReader;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 
@@ -335,11 +334,9 @@ fn main() -> Result<(), Box<Error>> {
     thread_pool.scoped::<_, Result<(), Box<Error>>>(|scope| {
         for conn in listener.incoming() {
             let mut conn = conn?;
-            let clone = conn.try_clone()?;
             let cfg_ref = &config;
             scope.execute(move || {
-                let reader = BufReader::new(clone);
-                if let Err(e) = handle_connection::<EmailValidator, _, _, _, _>(reader, &mut conn, cfg_ref) {
+                if let Err(e) = handle_connection::<EmailValidator, _, _, _>(&mut conn, cfg_ref) {
                     println!("handle_connection failed: {:?}", e);
                 };
             });
