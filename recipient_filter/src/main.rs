@@ -16,7 +16,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-
 extern crate hmac;
 extern crate nix;
 extern crate regex;
@@ -38,10 +37,11 @@ use sha2::Sha256;
 use std::env;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
-use std::fs::{metadata, remove_file, set_permissions, File};
+use std::fs::{create_dir_all, metadata, remove_file, set_permissions, File};
 use std::io::prelude::*;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
+use std::path::Path;
 
 const CONFIG_FILE_DEFAULT: &str = "/etc/recipient_filter.toml";
 
@@ -213,7 +213,7 @@ impl<'l> PolicyRequestHandler<'l, Config, ()> for EmailValidator<'l> {
         None
     }
 
-    fn response(self) -> Result<PolicyResponse, ()>  {
+    fn response(self) -> Result<PolicyResponse, ()> {
         Ok(self.response.unwrap_or(PolicyResponse::Dunno))
     }
 }
@@ -319,6 +319,9 @@ fn main() -> Result<(), Box<Error>> {
     };
 
     let socket_path = &config.socket_path;
+    if let Some(socket_dir) = Path::new(socket_path).parent() {
+        create_dir_all(socket_dir)?;
+    }
     if let Ok(meta) = metadata(socket_path) {
         if meta.file_type().is_socket() {
             remove_file(socket_path)?;
