@@ -1,18 +1,18 @@
 [package]
 name = "recipient_filter"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Grollicus"]
 edition = "2018"
 repository = "https://github.com/Grollicus/mailfilter"
 description = "A Postfix SMTP access policy delegation server that validates receiver email addresses with a secret"
 
 [dependencies]
-hmac = "0.7.0"
-nix = "0.14.0"
-regex = "1.1.6"
+hmac = "0.11.0"
+nix = "0.20.0"
+regex = "1.4.6"
 scoped-pool = "1.0.0"
-serde = {version="1.0.91", features=["derive"]}
-sha2 = "0.8.0"
-toml = "0.5"
-users = "0.9.1"
+serde = { version = "1.0.125", features = ["derive"] }
+sha2 = "0.9.3"
+toml = "0.5.8"
+users = "0.11.0"
 postfix_policy = "0.2.0"

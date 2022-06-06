@@ -23,7 +23,7 @@ extern crate sha2;
 extern crate toml;
 
 use clap::{App, AppSettings, Arg};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, NewMac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::boxed::Box;
@@ -37,10 +37,10 @@ use std::str::from_utf8;
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 fn compute_hash(msg: &[u8], secret: &[u8]) -> Vec<u8> {
-    let mut mac: Hmac<Sha256> = Hmac::new_varkey(secret).expect("The Secret is invalid");
-    mac.input(msg);
-    let code = mac.result().code();
-    format!("{:x}", code).into_bytes()
+    let mut mac: Hmac<Sha256> = Hmac::new_from_slice(secret).expect("The Secret is invalid");
+    mac.update(msg);
+    let code = mac.finalize();
+    format!("{:x}", code.into_bytes()).into_bytes()
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -50,7 +50,7 @@ struct Config {
     domain: String,
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let default_config_path = dirs::config_dir()
         .expect("Could not find XDG_CONFIG_HOME")
         .join(env!("CARGO_PKG_NAME"))

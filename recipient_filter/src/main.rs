@@ -28,7 +28,7 @@ extern crate users;
 extern crate postfix_policy;
 use postfix_policy::{handle_connection, PolicyRequestHandler, PolicyResponse};
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, NewMac};
 use nix::unistd::{setresgid, setresuid, Gid, Uid};
 use regex::bytes::{Regex, RegexBuilder, RegexSet, RegexSetBuilder};
 use serde::Deserialize;
@@ -121,10 +121,10 @@ impl Config {
 }
 
 fn compute_hash(msg: &[u8], secret: &[u8]) -> Vec<u8> {
-    let mut mac: Hmac<Sha256> = Hmac::new_varkey(secret).expect("The Secret is invalid");
-    mac.input(msg);
-    let code = mac.result().code();
-    format!("{:x}", code).into_bytes()
+    let mut mac: Hmac<Sha256> = Hmac::new_from_slice(secret).expect("The Secret is invalid");
+    mac.update(msg);
+    let code = mac.finalize();
+    format!("{:x}", code.into_bytes()).into_bytes()
 }
 
 #[test]
@@ -295,7 +295,7 @@ fn test_handle_request() {
     assert_eq!(ctx.response().unwrap(), PolicyResponse::Reject(Vec::new()));
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<OsString> = env::args_os().collect();
     let config_path = match args.get(1) {
         Some(p) => p,
@@ -334,7 +334,7 @@ fn main() -> Result<(), Box<Error>> {
     setresuid(config.user, config.user, config.user)?;
 
     let thread_pool = scoped_pool::Pool::new(4);
-    thread_pool.scoped::<_, Result<(), Box<Error>>>(|scope| {
+    thread_pool.scoped::<_, Result<(), Box<dyn Error>>>(|scope| {
         for conn in listener.incoming() {
             let mut conn = conn?;
             let cfg_ref = &config;

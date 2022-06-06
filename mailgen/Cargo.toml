@@ -6,9 +6,9 @@ edition = "2018"
 description = "CLI tool that generates email addresses that are valid under a secret. For use with recipient_filter"
 
 [dependencies]
-clap = "2.33.0"
-dirs = "1.0.5"
-hmac = "0.7.0"
-serde = {version="1.0.91", features=["derive"]}
-sha2 = "0.8.0"
-toml = "0.5"
+clap = "2.33.3"
+dirs = "3.0.2"
+hmac = "0.11.0"
+serde = { version = "1.0.125", features = ["derive"] }
+sha2 = "0.9.3"
+toml = "0.5.8"
